@@ -102,7 +102,7 @@ public class IdentityConfigurationTests
         }
 
         var webapp = clients.Single(client => client.ClientId == "webapp");
-        CollectionAssert.AreEquivalent(new[] { "code" }, webapp.AllowedGrantTypes.ToArray());
+        CollectionAssert.AreEquivalent(new[] { "authorization_code" }, webapp.AllowedGrantTypes.ToArray());
         CollectionAssert.AreEquivalent(new[] { "https://webapp.test/signin-oidc" }, webapp.RedirectUris.ToArray());
         CollectionAssert.AreEquivalent(new[] { "https://webapp.test/signout-callback-oidc" }, webapp.PostLogoutRedirectUris.ToArray());
         Assert.IsFalse(webapp.AllowAccessTokensViaBrowser);
