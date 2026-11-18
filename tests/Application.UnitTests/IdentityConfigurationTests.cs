@@ -45,6 +45,79 @@ public class IdentityConfigurationTests
     }
 
     [TestMethod]
+    public void WishlistPermissionIsRestrictedToWebApp()
+    {
+        var values = new Dictionary<string, string?>
+        {
+            ["MauiCallback"] = "maui://callback",
+            ["WebAppClient"] = "https://webapp.test",
+            ["WebhooksWebClient"] = "https://webhooks-client.test",
+            ["BasketApiClient"] = "https://basket.test",
+            ["OrderingApiClient"] = "https://ordering.test",
+            ["WebhooksApiClient"] = "https://webhooks.test"
+        };
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
+
+        var clients = Config.GetClients(configuration).ToArray();
+        var webapp = clients.Single(client => client.ClientId == "webapp");
+
+        Assert.AreEqual(1, webapp.AllowedScopes.Count(scope => scope == "wishlist"));
+        foreach (var client in clients.Where(client => client.ClientId != "webapp"))
+        {
+            Assert.AreEqual(0, client.AllowedScopes.Count(scope => scope == "wishlist"), client.ClientId);
+        }
+    }
+
+    [TestMethod]
+    public void WishlistRegistrationPreservesExistingPermissions()
+    {
+        var values = new Dictionary<string, string?>
+        {
+            ["MauiCallback"] = "maui://callback",
+            ["WebAppClient"] = "https://webapp.test",
+            ["WebhooksWebClient"] = "https://webhooks-client.test",
+            ["BasketApiClient"] = "https://basket.test",
+            ["OrderingApiClient"] = "https://ordering.test",
+            ["WebhooksApiClient"] = "https://webhooks.test"
+        };
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
+        var expectedScopes = new Dictionary<string, string[]>
+        {
+            ["webapp"] = new[] { "openid", "profile", "offline_access", "orders", "basket", "webshoppingagg", "webhooks", "wishlist" },
+            ["maui"] = new[] { "openid", "profile", "offline_access", "orders", "basket", "mobileshoppingagg", "webhooks" },
+            ["webhooksclient"] = new[] { "openid", "profile", "offline_access", "webhooks" },
+            ["basketswaggerui"] = new[] { "basket" },
+            ["orderingswaggerui"] = new[] { "orders" },
+            ["webhooksswaggerui"] = new[] { "webhooks" }
+        };
+
+        var clients = Config.GetClients(configuration).ToArray();
+
+        CollectionAssert.AreEquivalent(expectedScopes.Keys.ToArray(), clients.Select(client => client.ClientId).ToArray());
+        foreach (var client in clients)
+        {
+            var scopes = client.AllowedScopes.ToArray();
+            CollectionAssert.AreEquivalent(expectedScopes[client.ClientId], scopes, client.ClientId);
+            Assert.AreEqual(scopes.Length, scopes.Distinct().Count(), client.ClientId);
+        }
+
+        var webapp = clients.Single(client => client.ClientId == "webapp");
+        CollectionAssert.AreEquivalent(new[] { "code" }, webapp.AllowedGrantTypes.ToArray());
+        CollectionAssert.AreEquivalent(new[] { "https://webapp.test/signin-oidc" }, webapp.RedirectUris.ToArray());
+        CollectionAssert.AreEquivalent(new[] { "https://webapp.test/signout-callback-oidc" }, webapp.PostLogoutRedirectUris.ToArray());
+        Assert.IsFalse(webapp.AllowAccessTokensViaBrowser);
+
+        CollectionAssert.AreEquivalent(new[] { "openid", "profile" }, Config.GetResources().Select(resource => resource.Name).ToArray());
+
+        var legacyResources = Config.GetApis().Where(resource => resource.Name != "wishlist").ToArray();
+        CollectionAssert.AreEquivalent(new[] { "basket", "orders", "webhooks" }, legacyResources.Select(resource => resource.Name).ToArray());
+        foreach (var resource in legacyResources)
+        {
+            Assert.AreEqual(0, resource.Scopes.Count, resource.Name);
+        }
+    }
+
+    [TestMethod]
     [DataRow("/connect/authorize?redirect_uri=https%3A%2F%2Fweb.test%2Fsignin-oidc&scope=openid", "https://web.test/")]
     [DataRow("/connect/authorize?client_id=webapp", "")]
     public void RedirectServiceExtractsConfiguredRedirect(string returnUrl, string expected)
