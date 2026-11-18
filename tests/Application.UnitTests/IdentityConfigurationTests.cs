@@ -10,11 +10,16 @@ public class IdentityConfigurationTests
     [TestMethod]
     public void ApiResourcesAndScopesStayAligned()
     {
-        var resources = Config.GetApis().Select(resource => resource.Name).Order().ToArray();
+        var apiResources = Config.GetApis().ToArray();
+        var resources = apiResources.Select(resource => resource.Name).Order().ToArray();
         var scopes = Config.GetApiScopes().Select(scope => scope.Name).Order().ToArray();
 
         CollectionAssert.AreEqual(resources, scopes);
-        CollectionAssert.AreEquivalent(new[] { "basket", "orders", "webhooks" }, scopes);
+        CollectionAssert.AreEquivalent(new[] { "basket", "orders", "webhooks", "wishlist" }, resources);
+        CollectionAssert.AreEquivalent(new[] { "basket", "orders", "webhooks", "wishlist" }, scopes);
+        Assert.AreEqual(resources.Length, resources.Distinct().Count());
+        Assert.AreEqual(scopes.Length, scopes.Distinct().Count());
+        CollectionAssert.AreEquivalent(new[] { "wishlist" }, apiResources.Single(resource => resource.Name == "wishlist").Scopes.ToArray());
     }
 
     [TestMethod]
