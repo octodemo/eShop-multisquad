@@ -1,4 +1,5 @@
 ﻿using System.Security.Claims;
+using System.Linq;
 using eShop.Basket.API.Repositories;
 using eShop.Basket.API.Grpc;
 using eShop.Basket.API.IntegrationEvents.EventHandling;
@@ -66,39 +67,111 @@ public class BasketServiceTests
     }
 
     [TestMethod]
-    public async Task UpdateBasketPersistsItemsForAuthenticatedUser()
+    [DataRow(0)]
+    [DataRow(-1)]
+    [DataRow(int.MinValue)]
+    public async Task UpdateBasketRejectsNonPositiveQuantities(int quantity)
     {
         var repository = Substitute.For<IBasketRepository>();
-        repository.UpdateBasketAsync(Arg.Any<CustomerBasket>())
-            .Returns(call => call.Arg<CustomerBasket>());
         var service = new BasketService(repository, NullLogger<BasketService>.Instance);
-        var context = CreateContext("buyer-1");
         var request = new UpdateBasketRequest();
-        request.Items.Add(new eShop.Basket.API.Grpc.BasketItem { ProductId = 42, Quantity = 3 });
+        request.Items.Add(new eShop.Basket.API.Grpc.BasketItem { ProductId = 10, Quantity = quantity });
 
-        var response = await service.UpdateBasket(request, context);
+        var exception = await Assert.ThrowsAsync<RpcException>(() =>
+            service.UpdateBasket(request, CreateContext("buyer-1")));
 
-        Assert.HasCount(1, response.Items);
-        Assert.AreEqual(42, response.Items[0].ProductId);
-        Assert.AreEqual(3, response.Items[0].Quantity);
-        await repository.Received(1).UpdateBasketAsync(Arg.Is<CustomerBasket>(basket =>
-            basket.BuyerId == "buyer-1" &&
-            basket.Items.Count == 1 &&
-            basket.Items[0].ProductId == 42 &&
-            basket.Items[0].Quantity == 3));
+        Assert.AreEqual(StatusCode.InvalidArgument, exception.StatusCode);
+        Assert.IsEmpty(repository.ReceivedCalls());
     }
 
     [TestMethod]
-    public async Task UpdateBasketRejectsAnonymousUser()
+    [DataRow(0)]
+    [DataRow(-1)]
+    public async Task UpdateBasketRejectsMixedQuantitiesWithoutRepositoryCalls(int quantity)
     {
         var repository = Substitute.For<IBasketRepository>();
         var service = new BasketService(repository, NullLogger<BasketService>.Instance);
+        var request = new UpdateBasketRequest();
+        request.Items.Add(new eShop.Basket.API.Grpc.BasketItem { ProductId = 10, Quantity = 2 });
+        request.Items.Add(new eShop.Basket.API.Grpc.BasketItem { ProductId = 20, Quantity = quantity });
 
         var exception = await Assert.ThrowsAsync<RpcException>(() =>
-            service.UpdateBasket(new UpdateBasketRequest(), CreateContext(null!)));
+            service.UpdateBasket(request, CreateContext("buyer-1")));
+
+        Assert.AreEqual(StatusCode.InvalidArgument, exception.StatusCode);
+        Assert.IsEmpty(repository.ReceivedCalls());
+    }
+
+    [TestMethod]
+    [DataRow(7)]
+    [DataRow(int.MaxValue)]
+    public async Task UpdateBasketPersistsItemsForAuthenticatedUser(int quantity)
+    {
+        var repository = Substitute.For<IBasketRepository>();
+        var repositoryBasket = new CustomerBasket("buyer-1")
+        {
+            Items = [new BasketItem { ProductId = 99, Quantity = 4 }]
+        };
+        CustomerBasket persistedBasket = null!;
+        repository.UpdateBasketAsync(Arg.Any<CustomerBasket>())
+            .Returns(call =>
+            {
+                persistedBasket = call.Arg<CustomerBasket>();
+                return repositoryBasket;
+            });
+        var service = new BasketService(repository, NullLogger<BasketService>.Instance);
+        var context = CreateContext("buyer-1");
+        var request = new UpdateBasketRequest();
+        request.Items.Add(new eShop.Basket.API.Grpc.BasketItem { ProductId = 10, Quantity = 1 });
+        request.Items.Add(new eShop.Basket.API.Grpc.BasketItem { ProductId = 20, Quantity = quantity });
+        request.Items.Add(new eShop.Basket.API.Grpc.BasketItem { ProductId = 10, Quantity = 1 });
+
+        var response = await service.UpdateBasket(request, context);
+
+        await repository.Received(1).UpdateBasketAsync(Arg.Any<CustomerBasket>());
+        Assert.HasCount(1, repository.ReceivedCalls());
+        Assert.AreEqual("buyer-1", persistedBasket.BuyerId);
+        CollectionAssert.AreEqual(
+            new[] { (10, 1), (20, quantity), (10, 1) },
+            persistedBasket.Items.Select(item => (item.ProductId, item.Quantity)).ToArray());
+        CollectionAssert.AreEqual(
+            new[] { (99, 4) },
+            response.Items.Select(item => (item.ProductId, item.Quantity)).ToArray());
+    }
+
+    [TestMethod]
+    public async Task UpdateBasketPreservesEmptyBasket()
+    {
+        var repository = Substitute.For<IBasketRepository>();
+        repository.UpdateBasketAsync(Arg.Any<CustomerBasket>())
+            .Returns(new CustomerBasket("buyer-1"));
+        var service = new BasketService(repository, NullLogger<BasketService>.Instance);
+
+        var response = await service.UpdateBasket(new UpdateBasketRequest(), CreateContext("buyer-1"));
+
+        await repository.Received(1).UpdateBasketAsync(Arg.Is<CustomerBasket>(basket =>
+            basket.BuyerId == "buyer-1" && basket.Items.Count == 0));
+        Assert.HasCount(1, repository.ReceivedCalls());
+        Assert.IsEmpty(response.Items);
+    }
+
+    [TestMethod]
+    [DataRow(null, 1)]
+    [DataRow(null, 0)]
+    [DataRow("", 1)]
+    [DataRow("", 0)]
+    public async Task UpdateBasketRejectsAnonymousUser(string userId, int quantity)
+    {
+        var repository = Substitute.For<IBasketRepository>();
+        var service = new BasketService(repository, NullLogger<BasketService>.Instance);
+        var request = new UpdateBasketRequest();
+        request.Items.Add(new eShop.Basket.API.Grpc.BasketItem { ProductId = 10, Quantity = quantity });
+
+        var exception = await Assert.ThrowsAsync<RpcException>(() =>
+            service.UpdateBasket(request, CreateContext(userId!)));
 
         Assert.AreEqual(StatusCode.Unauthenticated, exception.StatusCode);
-        await repository.DidNotReceive().UpdateBasketAsync(Arg.Any<CustomerBasket>());
+        Assert.IsEmpty(repository.ReceivedCalls());
     }
 
     [TestMethod]
@@ -113,6 +186,9 @@ public class BasketServiceTests
             service.UpdateBasket(new UpdateBasketRequest(), CreateContext("missing")));
 
         Assert.AreEqual(StatusCode.NotFound, exception.StatusCode);
+        await repository.Received(1).UpdateBasketAsync(Arg.Is<CustomerBasket>(basket =>
+            basket.BuyerId == "missing" && basket.Items.Count == 0));
+        Assert.HasCount(1, repository.ReceivedCalls());
     }
 
     [TestMethod]
