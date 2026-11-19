@@ -102,26 +102,40 @@ public class BasketServiceTests
     }
 
     [TestMethod]
-    public async Task UpdateBasketPersistsItemsForAuthenticatedUser()
+    [DataRow(7)]
+    [DataRow(int.MaxValue)]
+    public async Task UpdateBasketPersistsItemsForAuthenticatedUser(int quantity)
     {
         var repository = Substitute.For<IBasketRepository>();
+        var repositoryBasket = new CustomerBasket("buyer-1")
+        {
+            Items = [new BasketItem { ProductId = 99, Quantity = 4 }]
+        };
+        CustomerBasket persistedBasket = null!;
         repository.UpdateBasketAsync(Arg.Any<CustomerBasket>())
-            .Returns(call => call.Arg<CustomerBasket>());
+            .Returns(call =>
+            {
+                persistedBasket = call.Arg<CustomerBasket>();
+                return repositoryBasket;
+            });
         var service = new BasketService(repository, NullLogger<BasketService>.Instance);
         var context = CreateContext("buyer-1");
         var request = new UpdateBasketRequest();
-        request.Items.Add(new eShop.Basket.API.Grpc.BasketItem { ProductId = 42, Quantity = 3 });
+        request.Items.Add(new eShop.Basket.API.Grpc.BasketItem { ProductId = 10, Quantity = 1 });
+        request.Items.Add(new eShop.Basket.API.Grpc.BasketItem { ProductId = 20, Quantity = quantity });
+        request.Items.Add(new eShop.Basket.API.Grpc.BasketItem { ProductId = 10, Quantity = 1 });
 
         var response = await service.UpdateBasket(request, context);
 
-        Assert.HasCount(1, response.Items);
-        Assert.AreEqual(42, response.Items[0].ProductId);
-        Assert.AreEqual(3, response.Items[0].Quantity);
-        await repository.Received(1).UpdateBasketAsync(Arg.Is<CustomerBasket>(basket =>
-            basket.BuyerId == "buyer-1" &&
-            basket.Items.Count == 1 &&
-            basket.Items[0].ProductId == 42 &&
-            basket.Items[0].Quantity == 3));
+        await repository.Received(1).UpdateBasketAsync(Arg.Any<CustomerBasket>());
+        Assert.HasCount(1, repository.ReceivedCalls());
+        Assert.AreEqual("buyer-1", persistedBasket.BuyerId);
+        CollectionAssert.AreEqual(
+            new[] { (10, 1), (20, quantity), (10, 1) },
+            persistedBasket.Items.Select(item => (item.ProductId, item.Quantity)).ToArray());
+        CollectionAssert.AreEqual(
+            new[] { (99, 4) },
+            response.Items.Select(item => (item.ProductId, item.Quantity)).ToArray());
     }
 
     [TestMethod]
