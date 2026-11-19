@@ -185,6 +185,9 @@ public class BasketServiceTests
             service.UpdateBasket(new UpdateBasketRequest(), CreateContext("missing")));
 
         Assert.AreEqual(StatusCode.NotFound, exception.StatusCode);
+        await repository.Received(1).UpdateBasketAsync(Arg.Is<CustomerBasket>(basket =>
+            basket.BuyerId == "missing" && basket.Items.Count == 0));
+        Assert.HasCount(1, repository.ReceivedCalls());
     }
 
     [TestMethod]
