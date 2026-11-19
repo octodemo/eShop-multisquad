@@ -41,6 +41,11 @@ public class BasketService(
             ThrowNotAuthenticated();
         }
 
+        if (request.Items.Any(item => item.Quantity < 1))
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid number of units"));
+        }
+
         if (logger.IsEnabled(LogLevel.Debug))
         {
             logger.LogDebug("Begin UpdateBasket call from method {Method} for basket id {Id}", context.Method, userId);

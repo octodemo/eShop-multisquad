@@ -66,6 +66,42 @@ public class BasketServiceTests
     }
 
     [TestMethod]
+    [DataRow(0)]
+    [DataRow(-1)]
+    [DataRow(int.MinValue)]
+    public async Task UpdateBasketRejectsNonPositiveQuantities(int quantity)
+    {
+        var repository = Substitute.For<IBasketRepository>();
+        var service = new BasketService(repository, NullLogger<BasketService>.Instance);
+        var request = new UpdateBasketRequest();
+        request.Items.Add(new eShop.Basket.API.Grpc.BasketItem { ProductId = 10, Quantity = quantity });
+
+        var exception = await Assert.ThrowsAsync<RpcException>(() =>
+            service.UpdateBasket(request, CreateContext("buyer-1")));
+
+        Assert.AreEqual(StatusCode.InvalidArgument, exception.StatusCode);
+        Assert.IsEmpty(repository.ReceivedCalls());
+    }
+
+    [TestMethod]
+    [DataRow(0)]
+    [DataRow(-1)]
+    public async Task UpdateBasketRejectsMixedQuantitiesWithoutRepositoryCalls(int quantity)
+    {
+        var repository = Substitute.For<IBasketRepository>();
+        var service = new BasketService(repository, NullLogger<BasketService>.Instance);
+        var request = new UpdateBasketRequest();
+        request.Items.Add(new eShop.Basket.API.Grpc.BasketItem { ProductId = 10, Quantity = 2 });
+        request.Items.Add(new eShop.Basket.API.Grpc.BasketItem { ProductId = 20, Quantity = quantity });
+
+        var exception = await Assert.ThrowsAsync<RpcException>(() =>
+            service.UpdateBasket(request, CreateContext("buyer-1")));
+
+        Assert.AreEqual(StatusCode.InvalidArgument, exception.StatusCode);
+        Assert.IsEmpty(repository.ReceivedCalls());
+    }
+
+    [TestMethod]
     public async Task UpdateBasketPersistsItemsForAuthenticatedUser()
     {
         var repository = Substitute.For<IBasketRepository>();
