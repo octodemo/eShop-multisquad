@@ -155,16 +155,22 @@ public class BasketServiceTests
     }
 
     [TestMethod]
-    public async Task UpdateBasketRejectsAnonymousUser()
+    [DataRow(null, 1)]
+    [DataRow(null, 0)]
+    [DataRow("", 1)]
+    [DataRow("", 0)]
+    public async Task UpdateBasketRejectsAnonymousUser(string userId, int quantity)
     {
         var repository = Substitute.For<IBasketRepository>();
         var service = new BasketService(repository, NullLogger<BasketService>.Instance);
+        var request = new UpdateBasketRequest();
+        request.Items.Add(new eShop.Basket.API.Grpc.BasketItem { ProductId = 10, Quantity = quantity });
 
         var exception = await Assert.ThrowsAsync<RpcException>(() =>
-            service.UpdateBasket(new UpdateBasketRequest(), CreateContext(null!)));
+            service.UpdateBasket(request, CreateContext(userId!)));
 
         Assert.AreEqual(StatusCode.Unauthenticated, exception.StatusCode);
-        await repository.DidNotReceive().UpdateBasketAsync(Arg.Any<CustomerBasket>());
+        Assert.IsEmpty(repository.ReceivedCalls());
     }
 
     [TestMethod]
