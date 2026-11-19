@@ -139,6 +139,22 @@ public class BasketServiceTests
     }
 
     [TestMethod]
+    public async Task UpdateBasketPreservesEmptyBasket()
+    {
+        var repository = Substitute.For<IBasketRepository>();
+        repository.UpdateBasketAsync(Arg.Any<CustomerBasket>())
+            .Returns(new CustomerBasket("buyer-1"));
+        var service = new BasketService(repository, NullLogger<BasketService>.Instance);
+
+        var response = await service.UpdateBasket(new UpdateBasketRequest(), CreateContext("buyer-1"));
+
+        await repository.Received(1).UpdateBasketAsync(Arg.Is<CustomerBasket>(basket =>
+            basket.BuyerId == "buyer-1" && basket.Items.Count == 0));
+        Assert.HasCount(1, repository.ReceivedCalls());
+        Assert.IsEmpty(response.Items);
+    }
+
+    [TestMethod]
     public async Task UpdateBasketRejectsAnonymousUser()
     {
         var repository = Substitute.For<IBasketRepository>();
