@@ -1,4 +1,5 @@
 ﻿using System.Security.Claims;
+using System.Linq;
 using eShop.Basket.API.Repositories;
 using eShop.Basket.API.Grpc;
 using eShop.Basket.API.IntegrationEvents.EventHandling;
